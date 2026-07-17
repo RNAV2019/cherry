@@ -19,11 +19,18 @@ sudo cp target/release/cherry /usr/local/bin/
 
 ## Usage
 
+Cherry runs as a resident background daemon so wallpaper thumbnails and
+dimensions stay decoded in memory between launches — only newly-added files
+in `~/Pictures/backgrounds` get decoded on each open.
+
 ```sh
-cherry
+cherry --toggle   # show the picker, or hide it if already open
+cherry --kill     # stop the daemon
+cherry            # run the daemon in the foreground (used internally; --toggle
+                   # auto-starts it in the background if it isn't running)
 ```
 
-Type to fuzzy-filter wallpapers. The preview pane shows the highlighted image. `Enter` applies it (awww grow transition), updates the `~/.local/share/wallpaper/current` symlink, sends a notification, and exits.
+Type to fuzzy-filter wallpapers. The preview pane shows the highlighted image. `Enter` applies it (awww grow transition), updates the `~/.local/share/wallpaper/current` symlink, sends a notification, and hides the picker — the daemon keeps running.
 
 ## Keyboard Shortcuts
 
@@ -38,7 +45,13 @@ Type to fuzzy-filter wallpapers. The preview pane shows the highlighted image. `
 **Key binding** — add to `hyprland.conf` or your keybinds config:
 
 ```ini
-bind = CTRL SUPER, Space, exec, cherry
+bind = CTRL SUPER, Space, exec, cherry --toggle
+```
+
+**Autostart** (optional but recommended — starts decoding wallpapers at login so the first toggle is instant):
+
+```ini
+exec-once = cherry
 ```
 
 **Window rules**:

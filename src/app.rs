@@ -9,6 +9,14 @@ use crate::wallpapers::{self, Wallpaper};
 
 const LIST_WIDTH: f32 = 380.0;
 
+/// Actions produced during a frame that require daemon-level responses
+/// (the daemon owns the window/process lifecycle, not `CherryApp`).
+#[derive(Debug)]
+pub enum AppAction {
+    Hide,
+    Apply(PathBuf),
+}
+
 pub struct CherryApp {
     query: String,
     selected_idx: Option<usize>,
@@ -18,31 +26,68 @@ pub struct CherryApp {
     dims: HashMap<PathBuf, (u32, u32)>,
     focus_search: bool,
     scroll_to_selected: bool,
+    pending_actions: Vec<AppAction>,
 }
 
 impl CherryApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let mut fonts = egui::FontDefinitions::default();
-        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-        cc.egui_ctx.set_fonts(fonts);
-
+    /// Scans the wallpaper directory but does not start decoding — the
+    /// daemon calls `request_initial_load` once it has a live `egui::Context`.
+    pub fn new() -> Self {
         let wallpapers = wallpapers::scan_wallpapers(&wallpapers::default_dir());
-        let loader = Loader::new();
-        loader.request_all(
-            wallpapers.iter().map(|w| w.path.clone()).collect(),
-            cc.egui_ctx.clone(),
-        );
-
         CherryApp {
             query: String::new(),
             selected_idx: None,
             wallpapers,
-            loader,
+            loader: Loader::new(),
             textures: HashMap::new(),
             dims: HashMap::new(),
             focus_search: true,
             scroll_to_selected: false,
+            pending_actions: Vec::new(),
         }
+    }
+
+    /// Kicks off background decoding for every wallpaper found by `new()`.
+    /// Called once, right after daemon startup, so the cache is warm before
+    /// the first toggle.
+    pub fn request_initial_load(&self, ctx: egui::Context) {
+        let paths = self.wallpapers.iter().map(|w| w.path.clone()).collect();
+        self.loader.request_all(paths, ctx);
+    }
+
+    /// Called on every toggle-open: rescans the wallpaper directory,
+    /// decodes only newly-added files, evicts removed ones from the
+    /// texture/dimension caches, and resets search/selection state.
+    pub fn on_show(&mut self, ctx: &egui::Context) {
+        self.rescan(ctx);
+        self.query.clear();
+        self.selected_idx = None;
+        self.focus_search = true;
+    }
+
+    /// No-op placeholder for symmetry with `on_show` — cherry has no
+    /// hide-time state to reset (no animation).
+    pub fn on_hide(&mut self) {}
+
+    fn rescan(&mut self, ctx: &egui::Context) {
+        let fresh = wallpapers::scan_wallpapers(&wallpapers::default_dir());
+        let (added, removed) = wallpapers::diff_scan(&self.wallpapers, &fresh);
+
+        for path in &removed {
+            self.textures.remove(path);
+            self.dims.remove(path);
+        }
+
+        if !added.is_empty() {
+            let paths = added.iter().map(|w| w.path.clone()).collect();
+            self.loader.request_all(paths, ctx.clone());
+        }
+
+        self.wallpapers = fresh;
+    }
+
+    pub fn drain_actions(&mut self) -> Vec<AppAction> {
+        std::mem::take(&mut self.pending_actions)
     }
 
     fn poll_images(&mut self, ctx: &egui::Context) {
@@ -90,20 +135,9 @@ impl CherryApp {
         };
     }
 
-    fn apply_and_close(&self, path: &std::path::Path, ctx: &egui::Context) {
-        match crate::apply::apply(path) {
-            Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-            Err(err) => {
-                eprintln!("cherry: {err}");
-                crate::apply::notify(&err);
-                std::process::exit(1);
-            }
-        }
-    }
-
     fn handle_keyboard(&mut self, ctx: &egui::Context) {
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            self.pending_actions.push(AppAction::Hide);
             return;
         }
 
@@ -130,11 +164,11 @@ impl CherryApp {
             }
         });
         if let Some(path) = apply_path {
-            self.apply_and_close(&path, ctx);
+            self.pending_actions.push(AppAction::Apply(path));
         }
     }
 
-    fn render_list(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    fn render_list(&mut self, ui: &mut egui::Ui) {
         let rows: Vec<(usize, bool)> = {
             let filtered = self.filtered();
             let preview_row = self.selected_idx.unwrap_or(0);
@@ -160,17 +194,12 @@ impl CherryApp {
             }
         }
         if let Some(path) = clicked {
-            self.apply_and_close(&path, ctx);
+            self.pending_actions.push(AppAction::Apply(path));
         }
     }
-}
 
-impl eframe::App for CherryApp {
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.0, 0.0, 0.0, 0.0]
-    }
-
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    /// Runs one frame. Called by the daemon inside `egui::Context::run`.
+    pub fn ui(&mut self, ctx: &egui::Context) {
         self.poll_images(ctx);
         self.handle_keyboard(ctx);
 
@@ -229,7 +258,7 @@ impl eframe::App for CherryApp {
                                         .max_height(body_height)
                                         .auto_shrink([false, false])
                                         .show(ui, |ui| {
-                                            self.render_list(ui, ctx);
+                                            self.render_list(ui);
                                         });
                                 },
                             );

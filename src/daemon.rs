@@ -358,7 +358,9 @@ impl Daemon {
                     Err(err) => {
                         eprintln!("cherry: {err}");
                         crate::apply::notify(&err);
-                        std::process::exit(1);
+                        state.app.on_hide();
+                        state.win = None;
+                        return;
                     }
                 },
             }

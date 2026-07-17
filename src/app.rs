@@ -7,7 +7,7 @@ use crate::loader::Loader;
 use crate::ui::theme;
 use crate::wallpapers::{self, Wallpaper};
 
-const LIST_WIDTH: f32 = 300.0;
+const LIST_WIDTH: f32 = 380.0;
 
 pub struct CherryApp {
     query: String,
@@ -220,15 +220,19 @@ impl eframe::App for CherryApp {
                         egui::Vec2::new(ui.available_width(), body_height),
                         egui::Layout::left_to_right(egui::Align::Min),
                         |ui| {
-                            ui.allocate_ui(egui::Vec2::new(LIST_WIDTH, body_height), |ui| {
-                                ui.set_min_size(egui::Vec2::new(LIST_WIDTH, body_height));
-                                egui::ScrollArea::vertical()
-                                    .max_height(body_height)
-                                    .auto_shrink([false, false])
-                                    .show(ui, |ui| {
-                                        self.render_list(ui, ctx);
-                                    });
-                            });
+                            ui.allocate_ui_with_layout(
+                                egui::Vec2::new(LIST_WIDTH, body_height),
+                                egui::Layout::top_down(egui::Align::Min),
+                                |ui| {
+                                    ui.set_min_size(egui::Vec2::new(LIST_WIDTH, body_height));
+                                    egui::ScrollArea::vertical()
+                                        .max_height(body_height)
+                                        .auto_shrink([false, false])
+                                        .show(ui, |ui| {
+                                            self.render_list(ui, ctx);
+                                        });
+                                },
+                            );
 
                             // Vertical separator between list and preview.
                             ui.painter().vline(

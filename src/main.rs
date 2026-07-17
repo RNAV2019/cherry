@@ -10,6 +10,8 @@ fn main() -> eframe::Result {
             .with_title("Cherry")
             .with_app_id("uk.co.ryannavsaria.cherry")
             .with_inner_size([900.0, 520.0])
+            .with_min_inner_size([900.0, 520.0])
+            .with_max_inner_size([900.0, 520.0])
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false),
